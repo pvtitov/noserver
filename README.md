@@ -4,10 +4,12 @@ A small Android library ("serverless" data sync/sharing SDK) providing Google-Dr
 storage for a single JSON file per user, plus a manual export/import fallback. Extracted from
 the ["Simple Wish List"](https://github.com/pvtitov/swl) app, which is its first consumer.
 
-Public API: `GoogleDriveRepository<T>` (generic Drive-backed store for a single JSON file —
-`download`/`upload`/`addFriend`/`getMyLogin`/`initialize`/`logout`), plus the internal
-`JsonUtils` helper and the manifest-declared `NoServerActivity`/`NoServerApplication` used for
-the Credential Manager sign-in flow. See the KDoc on `GoogleDriveRepository` for usage.
+Public API: `NoServer.configure(googleWebClientId)` (call once, e.g. from `Application.onCreate`,
+with the consumer's own Google Cloud OAuth web client ID) and `GoogleDriveRepository<T>` (generic
+Drive-backed store for a single JSON file — `download`/`upload`/`addFriend`/`getMyLogin`/
+`initialize`/`logout`), plus the internal `JsonUtils` helper and the manifest-declared
+`NoServerActivity`/`NoServerApplication` used for the Credential Manager sign-in flow. See the
+KDoc on `GoogleDriveRepository` for usage.
 
 ## Status: not yet published — setup left to do
 
@@ -92,9 +94,11 @@ dependencies {
   transitively pulls in AndroidX (`androidx.core`, `androidx.credentials`, `androidx.lifecycle`,
   etc., via Credential Manager/Drive auth). Every modern Android project already has this.
 - No core library desugaring needed — the library doesn't use any API that requires it.
-- No `GOOGLE_WEB_CLIENT_ID` setup needed in the consumer — it's read once at this library's own
-  build/publish time (see `local.properties`, gitignored, not committed) and baked into the
-  published AAR's compiled `BuildConfig`.
+- The consumer must call `NoServer.configure(googleWebClientId)` with its own Google Cloud OAuth
+  web client ID before using `GoogleDriveRepository` (e.g. from `Application.onCreate`). This
+  can't be baked into the library at build time: an OAuth web client ID is tied to a specific
+  app's package name and signing certificate, so a single ID compiled into the published AAR
+  could never work across different consuming apps.
 
 ## Local development
 
@@ -104,9 +108,10 @@ dependencies {
 ./gradlew publishToMavenLocal    # install to ~/.m2 for consuming from another local project
 ```
 
-Requires `GOOGLE_WEB_CLIENT_ID` set in a local, gitignored `local.properties` (for Google
-Sign-In / Drive API auth) — get this from the Google Cloud Console OAuth client credentials for
-this project, the same value the wishlist app's own `local.properties` used before extraction.
+No build-time secret is required — for local manual testing, call
+`NoServer.configure(googleWebClientId)` from the consuming app with an OAuth web client ID from
+the Google Cloud Console (e.g. the same value the wishlist app's own `local.properties` used
+before extraction).
 
 ## License
 

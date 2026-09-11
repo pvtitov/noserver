@@ -1,13 +1,9 @@
-import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
-
 plugins {
     id("com.android.library") version "8.12.3"
     id("org.jetbrains.kotlin.android") version "2.2.21"
     id("org.jetbrains.kotlin.plugin.serialization") version "2.2.21"
     id("maven-publish")
 }
-
-val googleWebClientId: String = gradleLocalProperties(rootDir, providers).getProperty("GOOGLE_WEB_CLIENT_ID")
 
 android {
     namespace = "com.github.pvtitov.noserver"
@@ -17,16 +13,12 @@ android {
         minSdk = 23
         targetSdk = 36
 
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", googleWebClientId)
-        buildFeatures.buildConfig = true
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
     }
 
     buildTypes {
         release {
-            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", googleWebClientId)
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

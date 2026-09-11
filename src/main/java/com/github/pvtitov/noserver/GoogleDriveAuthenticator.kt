@@ -29,6 +29,7 @@ internal object GoogleDriveAuthenticator {
 
     internal var drive: Drive? = null
         private set
+    internal var clientId: String? = null
     private var authorizationConsentCoroutineScope: CoroutineScope? = null
     private var authorizationConsentContinuation: Continuation<Boolean>? = null
 
@@ -73,9 +74,14 @@ internal object GoogleDriveAuthenticator {
         activity: Activity,
         isAutoSelect: Boolean,
     ): Drive? {
+        val serverClientId = clientId ?: error(
+            "NoServer is not configured. Call NoServer.configure(googleWebClientId) with your app's " +
+                    "OAuth web client ID before using GoogleDriveRepository."
+        )
+
         val googleIdOption: GetGoogleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+            .setServerClientId(serverClientId)
             .setAutoSelectEnabled(isAutoSelect)
             .build()
 

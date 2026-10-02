@@ -5,6 +5,12 @@ plugins {
     id("maven-publish")
 }
 
+// Falls back to a clearly-non-release version when nothing passes `-Pversion=` (e.g. a plain
+// `./gradlew publishToMavenLocal`), instead of Gradle's default "unspecified". JitPack's own
+// build still works unchanged: it passes `-Pversion=<tag>`, which `gradleProperty("version")`
+// reads the same as before.
+version = providers.gradleProperty("version").getOrElse("0.0.0-local")
+
 android {
     namespace = "com.github.pvtitov.noserver"
     compileSdk = 36
@@ -49,6 +55,9 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-ktx:1.11.0")
+    // Used only to get an application Context (see NoServerInitializer) without forcing
+    // consumers to declare or extend a particular Application subclass in their manifest.
+    implementation("androidx.startup:startup-runtime:1.2.0")
     // api: consumers' inline reified calls into GoogleDriveRepository/JsonUtils compile
     // kotlinx.serialization.json.Json symbols directly into their own call sites, so it
     // must be on their compile classpath too, not just noserver's.

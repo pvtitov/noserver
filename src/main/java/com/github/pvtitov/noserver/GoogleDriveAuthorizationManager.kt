@@ -32,7 +32,7 @@ object GoogleDriveAuthorizationManager {
             }
         } else {
             Log.d(TAG, "runWithGoogleDrive(): need authentication, should start activity")
-            NoServerApplication.applicationContext?.let { context ->
+            NoServerApplicationContext.instance?.let { context ->
                 context.startActivity(
                     Intent(context, NoServerActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -46,7 +46,7 @@ object GoogleDriveAuthorizationManager {
 
     fun logout() {
         Log.d(TAG, "logout()")
-        NoServerApplication.applicationContext?.let { context ->
+        NoServerApplicationContext.instance?.let { context ->
             context.startActivity(
                 Intent(context, NoServerActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -59,7 +59,7 @@ object GoogleDriveAuthorizationManager {
 
     private fun finish() {
         Log.d(TAG, "finish()")
-        NoServerApplication.applicationContext?.let { context ->
+        NoServerApplicationContext.instance?.let { context ->
             context.startActivity(
                 Intent(context, NoServerActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -118,7 +118,7 @@ object GoogleDriveAuthorizationManager {
                 e
             )
             val intent = e.intent
-            val context = NoServerApplication.applicationContext
+            val context = NoServerApplicationContext.instance
             if (context != null && intent != null) {
                 context.startActivity(
                     Intent(context, NoServerActivity::class.java).apply {

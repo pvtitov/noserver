@@ -1,14 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET"/>
 
-    <application
-            android:name=".NoServerApplication">
+    <application>
+        <!--
+             Gets an application Context via App Startup instead of requiring consumers to
+             declare/extend a specific Application subclass, which would otherwise conflict
+             with a consumer's own Application at manifest-merge time. tools:node="merge" lets
+             this coexist with other libraries that also use App Startup.
+        -->
+        <provider
+                android:name="androidx.startup.InitializationProvider"
+                android:authorities="${applicationId}.androidx-startup"
+                android:exported="false"
+                tools:node="merge">
+            <meta-data
+                    android:name="com.github.pvtitov.noserver.NoServerInitializer"
+                    android:value="androidx.startup"/>
+        </provider>
+
         <activity
                 android:name=".NoServerActivity"
                 android:label="NoServer"
-                android:exported="true"
+                android:exported="false"
                 android:theme="@style/Theme.Transparent"
         />
     </application>

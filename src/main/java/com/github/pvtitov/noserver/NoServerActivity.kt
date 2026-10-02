@@ -63,6 +63,27 @@ internal class NoServerActivity : Activity() {
             } else if (extras.containsKey(LOGOUT_EXTRA_KEY)) {
                 GoogleDriveAuthorizationManager.logout(this@NoServerActivity)
                 finish()
+            } else if (extras.containsKey(MANUAL_SAVE_EXTRA_KEY)) {
+                val suggestedFileName = extras.getString(MANUAL_SAVE_EXTRA_KEY) ?: run {
+                    finish()
+                    return@launch
+                }
+                startActivityForResult(
+                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = JSON_MIME_TYPE
+                        putExtra(Intent.EXTRA_TITLE, suggestedFileName)
+                    },
+                    MANUAL_SAVE_REQUEST_CODE
+                )
+            } else if (extras.containsKey(MANUAL_LOAD_EXTRA_KEY)) {
+                startActivityForResult(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = JSON_MIME_TYPE
+                    },
+                    MANUAL_LOAD_REQUEST_CODE
+                )
             } else {
                 finish()
             }
@@ -78,6 +99,12 @@ internal class NoServerActivity : Activity() {
             coroutineScope.launch(Dispatchers.IO) {
                 GoogleDriveAuthorizationManager.authorize()
             }
+        } else if (requestCode == MANUAL_SAVE_REQUEST_CODE) {
+            ManualStorageManager.onSaveResult(if (resultCode == RESULT_OK) data?.data else null)
+            finish()
+        } else if (requestCode == MANUAL_LOAD_REQUEST_CODE) {
+            ManualStorageManager.onLoadResult(if (resultCode == RESULT_OK) data?.data else null)
+            finish()
         } else {
             finish()
         }
@@ -100,7 +127,12 @@ internal class NoServerActivity : Activity() {
         internal const val AUTHORIZATION_EXTRA_KEY = "AUTHORIZATION_EXTRA_KEY"
         internal const val LOGOUT_EXTRA_KEY = "LOGOUT_EXTRA_KEY"
         internal const val FINISH_EXTRA_KEY = "FINISH_EXTRA_KEY"
+        internal const val MANUAL_SAVE_EXTRA_KEY = "MANUAL_SAVE_EXTRA_KEY"
+        internal const val MANUAL_LOAD_EXTRA_KEY = "MANUAL_LOAD_EXTRA_KEY"
         private const val AUTHORIZATION_REQUEST_CODE = 14
+        private const val MANUAL_SAVE_REQUEST_CODE = 15
+        private const val MANUAL_LOAD_REQUEST_CODE = 16
+        private const val JSON_MIME_TYPE = "application/json"
         private const val TAG = "NoServerActivity"
     }
 }

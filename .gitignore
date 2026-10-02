@@ -6,6 +6,11 @@ build
 captures
 local.properties
 
+# signing
+*.jks
+*.keystore
+keystore.properties
+
 # codestyle and inspection
 !.idea/codeStyles/
 !.idea/inspectionProfiles/

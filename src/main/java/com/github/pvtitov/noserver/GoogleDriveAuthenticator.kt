@@ -146,7 +146,9 @@ internal object GoogleDriveAuthenticator {
                         GsonFactory.getDefaultInstance(),
                         googleAccountCredential
                     )
-                        .setApplicationName("Test")
+                        // Identifies the calling app to Google (shown in Drive API usage/quota
+                        // diagnostics); the consumer's own package name, not a placeholder.
+                        .setApplicationName(context.packageName)
                         .build()
                 }
 

@@ -70,15 +70,15 @@ class GoogleDriveRepository<T>(
                         .files
                         .firstOrNull()
 
-                    Log.d(TAG, "download(): file = $file")
+                    Log.d(TAG, "download(): file found = ${file != null}")
 
                     val data = if (file != null) {
                         val outputStream = ByteArrayOutputStream()
 
                         drive.files().get(file.id).executeMediaAndDownloadTo(outputStream)
 
+                        // Not logged: this is the user's file content, not diagnostic data.
                         val rawJsonString = outputStream.toString()
-                        Log.d(TAG, "File content: $rawJsonString")
 
                         JsonUtils.fromJson<T>(rawJsonString)
                     } else {
@@ -94,7 +94,8 @@ class GoogleDriveRepository<T>(
     suspend inline fun <reified T> upload(
         data: T
     ): Boolean {
-        Log.d(TAG, "upload() called: data = $data")
+        // data itself is not logged: it's the user's file content, not diagnostic data.
+        Log.d(TAG, "upload() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
                 GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
@@ -115,7 +116,8 @@ class GoogleDriveRepository<T>(
     }
 
     suspend fun addFriend(login: String): Boolean {
-        Log.d(TAG, "addFriend() called for $login")
+        // login (an e-mail address) is not logged: not diagnostic data.
+        Log.d(TAG, "addFriend() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
                 GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
@@ -132,7 +134,7 @@ class GoogleDriveRepository<T>(
 
                     drive.permissions().create(file.id, permission).execute()
 
-                    Log.d(TAG, "Successfully added friend $login as a reader to your $fileName")
+                    Log.d(TAG, "Successfully added a reader to $fileName")
                     continuation.resume(true)
                 }
             }
@@ -183,12 +185,6 @@ class GoogleDriveRepository<T>(
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
                 GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
-                    val me = drive.about().get()
-                        .setFields("user(emailAddress, me)")
-                        .execute().user
-
-                    Log.d(TAG, "createFile(): me = $me")
-
                     val file = File().apply {
                         name = fileName
                     }

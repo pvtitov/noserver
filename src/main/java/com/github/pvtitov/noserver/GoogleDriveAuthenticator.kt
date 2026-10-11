@@ -8,8 +8,10 @@ import android.content.Intent
 import android.util.Log
 import androidx.credentials.*
 import androidx.credentials.exceptions.ClearCredentialException
-import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
@@ -18,6 +20,7 @@ import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.supervisorScope
@@ -34,15 +37,32 @@ internal object GoogleDriveAuthenticator {
     private var authorizationConsentContinuation: Continuation<Boolean>? = null
 
     internal suspend fun authenticate(activity: Activity): Result<Drive> {
-        val driveImmutable = drive?.let { return Result.success(it) }
-            ?: authenticateInternal(activity, true)
-            ?: authenticateInternal(activity, false)
+        drive?.let { return Result.success(it) }
 
-        return if (driveImmutable != null) {
-            drive = driveImmutable
-            Result.success(driveImmutable)
-        } else {
-            Result.failure(AuthenticationFailedException())
+        return try {
+            val signedIn = try {
+                handleSignIn(activity, googleIdRequest())
+            } catch (e: NoCredentialException) {
+                // The bottom sheet only lists accounts already on the device. The "Sign in with
+                // Google" flow also offers to add one, which Google recommends for this case.
+                Log.d(TAG, "No credential for the bottom sheet, falling back to Sign in with Google", e)
+                handleSignIn(activity, signInWithGoogleRequest())
+            }
+            drive = signedIn
+            Result.success(signedIn)
+        } catch (e: NoCredentialException) {
+            Log.e(TAG, "No Google account available", e)
+            Result.failure(NoServerException.NoGoogleAccount(e))
+        } catch (e: GetCredentialCancellationException) {
+            Log.d(TAG, "Sign-in cancelled by the user", e)
+            Result.failure(NoServerException.Cancelled(e))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: NoServerException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Sign-in failed", e)
+            Result.failure(NoServerException.Failed(e))
         }
     }
 
@@ -70,29 +90,26 @@ internal object GoogleDriveAuthenticator {
         }
     }
 
-    private suspend fun authenticateInternal(
-        activity: Activity,
-        isAutoSelect: Boolean,
-    ): Drive? {
-        val serverClientId = clientId ?: error(
-            "NoServer is not configured. Call NoServer.configure(googleWebClientId) with your app's " +
-                    "OAuth web client ID before using GoogleDriveRepository."
+    private fun serverClientId(): String = clientId ?: error(
+        "NoServer is not configured. Call NoServer.configure(googleWebClientId) with your app's " +
+                "OAuth web client ID before using GoogleDriveRepository."
+    )
+
+    private fun googleIdRequest(): GetCredentialRequest = GetCredentialRequest.Builder()
+        .addCredentialOption(
+            GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(false)
+                .setServerClientId(serverClientId())
+                .setAutoSelectEnabled(true)
+                .build()
         )
+        .build()
 
-        val googleIdOption: GetGoogleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(serverClientId)
-            .setAutoSelectEnabled(isAutoSelect)
-            .build()
+    private fun signInWithGoogleRequest(): GetCredentialRequest = GetCredentialRequest.Builder()
+        .addCredentialOption(GetSignInWithGoogleOption.Builder(serverClientId()).build())
+        .build()
 
-        val getCredentialRequest: GetCredentialRequest = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
-        return handleSignIn(activity, getCredentialRequest)
-    }
-
-    private suspend fun handleSignIn(activity: Activity, getCredentialRequest: GetCredentialRequest): Drive? {
+    private suspend fun handleSignIn(activity: Activity, getCredentialRequest: GetCredentialRequest): Drive {
         try {
             val credentialManager = CredentialManager.create(activity)
 
@@ -102,16 +119,10 @@ internal object GoogleDriveAuthenticator {
             )
 
             return getCredentialResponse.credential.signIn(activity)
-        } catch (e: GetCredentialException) {
-            Log.e(TAG, "Get credentials exception", e)
-            return null
         } catch (e: UserRecoverableAuthIOException) {
             Log.d(TAG, "Get credentials recoverable exception", e)
             getAuthorizationConsent(activity, e.intent)
             return handleSignIn(activity, getCredentialRequest)
-        } catch (e: Throwable) {
-            Log.e(TAG, "Get credentials another exception", e)
-            return null
         }
     }
 
@@ -127,46 +138,35 @@ internal object GoogleDriveAuthenticator {
         return hasConsent
     }
 
-    private fun Credential.signIn(context: Context): Drive? {
-
-        if (this is CustomCredential && type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-            try {
-                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(data)
-
-                if (drive == null) {
-                    val googleAccountCredential = GoogleAccountCredential.usingOAuth2(
-                        context, listOf(DriveScopes.DRIVE)
-                    )
-                        .setSelectedAccount(
-                            Account(googleIdTokenCredential.id, googleIdTokenCredential.type)
-                        )
-
-                    drive = Drive.Builder(
-                        NetHttpTransport(),
-                        GsonFactory.getDefaultInstance(),
-                        googleAccountCredential
-                    )
-                        // Identifies the calling app to Google (shown in Drive API usage/quota
-                        // diagnostics); the consumer's own package name, not a placeholder.
-                        .setApplicationName(context.packageName)
-                        .build()
-                }
-
-                return drive
-            } catch (e: GoogleIdTokenParsingException) {
-                Log.e(TAG, "Received an invalid google id token response", e)
-                return null
-            }
-        } else {
-            Log.e(TAG, "Unexpected type of credential")
-            return null
+    private fun Credential.signIn(context: Context): Drive {
+        if (this !is CustomCredential || type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+            throw NoServerException.Failed(IllegalStateException("Unexpected type of credential: $type"))
         }
-    }
+        val googleIdTokenCredential = try {
+            GoogleIdTokenCredential.createFrom(data)
+        } catch (e: GoogleIdTokenParsingException) {
+            throw NoServerException.Failed(e)
+        }
 
-    class AuthenticationFailedException(
-        override val message: String? = null,
-        override val cause: Throwable? = null
-    ) : Exception(message, cause)
+        drive?.let { return it }
+
+        val googleAccountCredential = GoogleAccountCredential.usingOAuth2(
+            context, listOf(DriveScopes.DRIVE)
+        )
+            .setSelectedAccount(
+                Account(googleIdTokenCredential.id, googleIdTokenCredential.type)
+            )
+
+        return Drive.Builder(
+            NetHttpTransport(),
+            GsonFactory.getDefaultInstance(),
+            googleAccountCredential
+        )
+            // Identifies the calling app to Google (shown in Drive API usage/quota
+            // diagnostics); the consumer's own package name, not a placeholder.
+            .setApplicationName(context.packageName)
+            .build()
+    }
 }
 
 private const val TAG = "AuthenticationManager"

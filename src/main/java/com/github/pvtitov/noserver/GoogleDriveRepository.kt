@@ -9,6 +9,7 @@ import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 
@@ -38,13 +39,13 @@ class GoogleDriveRepository<T>(
         Log.d(TAG, "getMyLogin() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
+                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
                     val login = drive.about().get()
                         .setFields("user(emailAddress, me)")
                         .execute()
                         .user.emailAddress
                     continuation.resume(login)
-                }
+                }, continuation::resumeWithException)
             }
         }
     }
@@ -55,7 +56,7 @@ class GoogleDriveRepository<T>(
     suspend inline fun <reified T> download(login: String = AUTHENTICATED_USER): T? {
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
+                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
 
                     val searchQuery = if (login == AUTHENTICATED_USER) {
                         "name='$fileName' and 'me' in owners"
@@ -86,7 +87,7 @@ class GoogleDriveRepository<T>(
                     }
 
                     continuation.resume(data)
-                }
+                }, continuation::resumeWithException)
             }
         }
     }
@@ -98,7 +99,7 @@ class GoogleDriveRepository<T>(
         Log.d(TAG, "upload() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
+                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
                     val file = getMyFile(drive)
 
                     if (file != null) {
@@ -110,7 +111,7 @@ class GoogleDriveRepository<T>(
                         Log.e(TAG, "File '$fileName' not found for upload.")
                         continuation.resume(false)
                     }
-                }
+                }, continuation::resumeWithException)
             }
         }
     }
@@ -120,7 +121,7 @@ class GoogleDriveRepository<T>(
         Log.d(TAG, "addFriend() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
+                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
                     val permission = Permission().apply {
                         type = "user"
                         role = "reader"
@@ -136,7 +137,7 @@ class GoogleDriveRepository<T>(
 
                     Log.d(TAG, "Successfully added a reader to $fileName")
                     continuation.resume(true)
-                }
+                }, continuation::resumeWithException)
             }
         }
     }
@@ -155,11 +156,11 @@ class GoogleDriveRepository<T>(
         Log.d(TAG, "isFileExists() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
+                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
                     val file = getMyFile(drive)
                     Log.d(TAG, "isFileExists() = ${file != null}")
                     continuation.resume(file != null)
-                }
+                }, continuation::resumeWithException)
             }
         }
     }
@@ -184,7 +185,7 @@ class GoogleDriveRepository<T>(
         Log.d(TAG, "createFile() called")
         return withContext(coroutineContext) {
             suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive { drive: Drive ->
+                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
                     val file = File().apply {
                         name = fileName
                     }
@@ -193,7 +194,7 @@ class GoogleDriveRepository<T>(
                         .execute()
 
                     continuation.resume(Unit)
-                }
+                }, continuation::resumeWithException)
             }
         }
     }

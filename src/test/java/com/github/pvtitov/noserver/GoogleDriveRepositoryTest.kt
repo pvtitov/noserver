@@ -41,7 +41,7 @@ class GoogleDriveRepositoryTest {
     @Before
     fun setUp() {
         mockkObject(GoogleDriveAuthorizationManager)
-        every { GoogleDriveAuthorizationManager.runWithGoogleDrive(any()) } answers {
+        every { GoogleDriveAuthorizationManager.runWithGoogleDrive(any(), any()) } answers {
             firstArg<(Drive) -> Unit>().invoke(drive)
         }
     }
@@ -83,6 +83,18 @@ class GoogleDriveRepositoryTest {
         every { aboutGet.execute() } returns about
         every { about.user } returns user
         every { user.emailAddress } returns email
+    }
+
+    @Test
+    fun `download throws the sign-in failure instead of hanging`() = runTest {
+        val failure = NoServerException.NoGoogleAccount()
+        every { GoogleDriveAuthorizationManager.runWithGoogleDrive(any(), any()) } answers {
+            secondArg<(NoServerException) -> Unit>().invoke(failure)
+        }
+
+        val thrown = runCatching { repository().download<Fixture>() }.exceptionOrNull()
+
+        assertTrue(thrown is NoServerException.NoGoogleAccount)
     }
 
     @Test

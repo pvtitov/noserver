@@ -4,9 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import android.view.ViewGroup
-import android.widget.ProgressBar
 import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicInteger
 
 
 internal class NoServerActivity : Activity() {
@@ -21,12 +20,7 @@ internal class NoServerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(
-            ProgressBar(this).apply {
-                layoutParams =
-                    ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            }
-        )
+        liveInstances.incrementAndGet()
         Log.d(TAG, "onCreate(): $this")
         handleStartingIntent()
     }
@@ -47,6 +41,7 @@ internal class NoServerActivity : Activity() {
             if (extras.containsKey(AUTHORIZATION_EXTRA_KEY)) {
                 val userRecoverableExceptionIntent = extras.getParcelable<Intent>(AUTHORIZATION_EXTRA_KEY)
                     ?: run {
+                        GoogleDriveAuthorizationManager.cancel()
                         finish()
                         return@launch
                     }
@@ -95,9 +90,14 @@ internal class NoServerActivity : Activity() {
 
         GoogleDriveAuthenticator.onActivityResult(requestCode, resultCode, data)
 
-        if (resultCode == RESULT_OK && requestCode == AUTHORIZATION_REQUEST_CODE) {
-            coroutineScope.launch(Dispatchers.IO) {
-                GoogleDriveAuthorizationManager.authorize()
+        if (requestCode == AUTHORIZATION_REQUEST_CODE) {
+            if (resultCode == RESULT_OK) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    GoogleDriveAuthorizationManager.authorize()
+                }
+            } else {
+                GoogleDriveAuthorizationManager.cancel()
+                finish()
             }
         } else if (requestCode == MANUAL_SAVE_REQUEST_CODE) {
             ManualStorageManager.onSaveResult(if (resultCode == RESULT_OK) data?.data else null)
@@ -116,6 +116,7 @@ internal class NoServerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        liveInstances.decrementAndGet()
         if (coroutineScope.isActive) {
             coroutineScope.cancel()
         }
@@ -123,6 +124,8 @@ internal class NoServerActivity : Activity() {
     }
 
     companion object {
+        // A counter, not a flag: FLAG_ACTIVITY_CLEAR_TOP creates the new instance before the old one is destroyed.
+        internal val liveInstances = AtomicInteger(0)
         internal const val AUTHENTICATION_EXTRA_KEY = "AUTHENTICATION_EXTRA_KEY"
         internal const val AUTHORIZATION_EXTRA_KEY = "AUTHORIZATION_EXTRA_KEY"
         internal const val LOGOUT_EXTRA_KEY = "LOGOUT_EXTRA_KEY"

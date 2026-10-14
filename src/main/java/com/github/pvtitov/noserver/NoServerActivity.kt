@@ -37,7 +37,7 @@ internal class NoServerActivity : Activity() {
                 finish()
                 return@launch
             }
-            Log.d(TAG, "launchAuthorization(): intent = $intent, extras = ${extras.keySet()}")
+            Log.d(TAG, "launchAuthorization(): extras = ${extras.keySet()}")
             if (extras.containsKey(AUTHORIZATION_EXTRA_KEY)) {
                 val userRecoverableExceptionIntent = extras.getParcelable<Intent>(AUTHORIZATION_EXTRA_KEY)
                     ?: run {
@@ -46,11 +46,7 @@ internal class NoServerActivity : Activity() {
                         return@launch
                     }
 
-                Log.d(
-                    TAG, "User recoverable exception intent: $userRecoverableExceptionIntent, " +
-                            "calling activity = ${callingActivity}, calling package = ${callingPackage}, " +
-                            "intent package = ${userRecoverableExceptionIntent.getPackage()}"
-                )
+                Log.d(TAG, "Launching authorization consent")
 
                 startActivityForResult(userRecoverableExceptionIntent, AUTHORIZATION_REQUEST_CODE)
             } else if (extras.containsKey(AUTHENTICATION_EXTRA_KEY)) {

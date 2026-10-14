@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-module Android **library** (root project applies `com.android.library`; there is no `app` module and no `include(...)` in `settings.gradle.kts`). It gives a consuming app a Google-Drive-backed store for one JSON file per user. It is published through JitPack as `com.github.pvtitov:noserver:<tag>` (currently tags `1.0.0`, `1.0.1`). `README.md` covers publishing/consumer setup, including versioning and the consumer's own legal/compliance obligations (privacy policy, OAuth verification) that this library doesn't take on for them. `PRIVACY_POLICY.md`/`TERMS_OF_SERVICE.md` are this library's own (it collects nothing and adds no security beyond Google Drive's).
+A single-module Android **library** (root project applies `com.android.library`; there is no `app` module and no `include(...)` in `settings.gradle.kts`). It gives a consuming app a Google-Drive-backed store for one JSON file per user. It is published through JitPack as `com.github.pvtitov:noserver:<tag>` (currently tags `1.0.0`, `1.0.1`). `README.md` covers publishing/consumer setup, including versioning and the consumer's own legal/compliance obligations (privacy policy, OAuth verification) that this library doesn't take on for them. The library deliberately has no privacy policy or ToS of its own (it collects nothing; MIT covers liability). Instead, README's "Data handling" section documents its data flows and logging for consumers. That section makes factual claims about the code, so update it whenever you change what the library accesses, stores, or logs.
 
 ## Commands
 

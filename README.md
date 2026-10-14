@@ -105,13 +105,45 @@ dependencies {
   `Context` itself via [App Startup](https://developer.android.com/topic/libraries/app-startup),
   so it won't conflict with a consumer's own `Application` subclass at manifest-merge time.
 
+### Data handling
+
+What the library does with user data, for the consuming app's own privacy policy and Google Play
+Data safety form. This is technical documentation, not a privacy policy: the library's author
+operates no server, analytics, or crash reporting, and receives nothing. The only permission the
+library declares is `INTERNET`.
+
+- **`GoogleDriveRepository`** talks directly from the device to Google:
+  - Signs the user in through Android Credential Manager (Google ID token) and requests the
+    full `drive` scope ("See, edit, create, and delete all of your Google Drive files"). The code
+    only touches the one file the app names, but the granted permission is broader than that.
+  - Creates, reads, and overwrites one JSON file, named by the app, in the user's Drive.
+    `download(login)` reads the same-named file owned by another account, if that account
+    shared it with the user.
+  - `getMyLogin()` reads the signed-in account's e-mail address.
+  - `addFriend(email)` grants another account read access to the user's file.
+  - The signed-in Drive client is kept in memory only, until `logout()` (which also clears
+    Credential Manager state) or process death.
+- **`ManualRepository`** reads or writes a file the user picks in the system file picker (Storage
+  Access Framework). No network, and no persisted URI permission is kept afterwards.
+- **No storage of its own:** no SharedPreferences, databases, or files beyond the Drive file
+  and user-picked files above.
+- **No security of its own:** data is stored as plain JSON, with only the protection Google
+  Drive or the picked location gives it. Anyone with access to the account, a shared file, or
+  the device can read it.
+- **Logcat:** the library deliberately doesn't log file content or the e-mail addresses passed to
+  or returned from the API, nor the URIs of picked files or the intents it launches. It does log
+  method names, success flags, the app-chosen Drive file name, and full exceptions from Google,
+  Credential Manager, and file I/O (whose messages the library doesn't control). These logs are not stripped in release builds; a
+  consumer that wants them gone can strip `android.util.Log` calls with R8
+  (`-assumenosideeffects`).
+
 ### The consumer's own legal/compliance obligations
 
 This library adds no security or privacy behavior beyond what Google Drive itself provides (see
-[`PRIVACY_POLICY.md`](PRIVACY_POLICY.md) and [`TERMS_OF_SERVICE.md`](TERMS_OF_SERVICE.md)), and
-it is not affiliated with Google. Using it does **not** satisfy any of the following — they are
-the consuming app's own responsibility, as the party that creates the Google Cloud project and
-OAuth client ID passed to `NoServer.configure(...)`:
+"Data handling" above), it comes with no warranty (see `LICENSE`), and it is not affiliated with
+Google. Using it does **not** satisfy any of the following — they are the consuming app's own
+responsibility, as the party that creates the Google Cloud project and OAuth client ID passed to
+`NoServer.configure(...)`:
 
 - **Its own privacy policy**, describing (among other things) that it uses Google Drive via this
   library, per the [Google API Services User Data
@@ -145,10 +177,13 @@ before extraction).
 
 ## Legal
 
-- [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md) and [`TERMS_OF_SERVICE.md`](TERMS_OF_SERVICE.md) —
-  this library's own privacy policy and terms, covering the library itself (which collects
-  nothing and adds no security of its own). They do not replace a consuming app's own privacy
-  policy or terms; see "The consumer's own legal/compliance obligations" above.
+The library has no privacy policy or terms of service of its own: it is not an app or a hosted
+service, it collects nothing, and the MIT License's warranty disclaimer and liability limitation
+cover the library itself. The privacy policy and terms that Google, app stores, and the law
+require belong to the consuming app; see "Data handling" and "The consumer's own
+legal/compliance obligations" above. If this project ever ships its own app, OAuth client ID, or
+backend, that app or service will need its own policy.
+
 - [Google APIs Terms of Service](https://developers.google.com/terms)
 - [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)
 - [Google Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)

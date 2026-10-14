@@ -59,14 +59,14 @@ object ManualStorageManager {
     }
 
     internal fun onSaveResult(uri: Uri?) {
-        Log.d(TAG, "onSaveResult(): uri = $uri")
+        Log.d(TAG, "onSaveResult(): file picked = ${uri != null}")
         val actionImmutable = saveAction
         saveAction = null
         actionImmutable?.invoke(uri)
     }
 
     internal fun onLoadResult(uri: Uri?) {
-        Log.d(TAG, "onLoadResult(): uri = $uri")
+        Log.d(TAG, "onLoadResult(): file picked = ${uri != null}")
         val actionImmutable = loadAction
         loadAction = null
         actionImmutable?.invoke(uri)

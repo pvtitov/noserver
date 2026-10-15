@@ -13,18 +13,13 @@ import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecovera
 import com.google.api.services.drive.Drive
 
 @SuppressLint("StaticFieldLeak")
-object GoogleDriveAuthorizationManager {
+internal object GoogleDriveAuthorizationManager {
 
     private const val TAG = "GoogleDriveAuthorizationManager"
 
     // TODO: implement action queue
     private var action: ((Drive) -> Unit)? = null
     private var onError: ((NoServerException) -> Unit)? = null
-
-    // Kept for call sites inlined from GoogleDriveRepository by consumers compiled against 1.0.x.
-    fun runWithGoogleDrive(action: (Drive) -> Unit) {
-        runWithGoogleDrive(action) { e -> Log.e(TAG, "runWithGoogleDrive(): unhandled failure", e) }
-    }
 
     /**
      * Runs [action] once a signed-in [Drive] is available. Exactly one of [action] completing or
@@ -52,6 +47,15 @@ object GoogleDriveAuthorizationManager {
                     putExtra(AUTHENTICATION_EXTRA_KEY, true)
                 }
             )
+        }
+    }
+
+    /** Drops [action] if it's still waiting for sign-in or consent, e.g. because its caller was cancelled. */
+    fun discard(action: (Drive) -> Unit) {
+        if (this.action === action) {
+            Log.d(TAG, "discard(): pending action dropped")
+            this.action = null
+            this.onError = null
         }
     }
 
@@ -163,7 +167,8 @@ object GoogleDriveAuthorizationManager {
             }
         } catch (e: Throwable) {
             Log.e(TAG, "handleUserRecoverableAuthException(): action failed: $e, ${e.message}, ${e.cause}", e)
-            fail(NoServerException.Failed(e))
+            // An action may throw a specific NoServerException (e.g. NoAccess) for the caller to see as is.
+            fail(e as? NoServerException ?: NoServerException.Failed(e))
             finish()
         }
     }

@@ -11,10 +11,10 @@ import kotlin.coroutines.suspendCoroutine
  * Manual, Google-Drive-free counterpart to [GoogleDriveRepository]: exports/imports the same
  * kind of JSON data to/from any location the user picks via Android's Storage Access Framework,
  * instead of a Drive-managed per-user file. There is no persisted "my file" in this mode, so
- * there's no [GoogleDriveRepository.initialize] equivalent, [download] always means "whatever
+ * there's no [GoogleDriveRepository.login] equivalent, [download] always means "whatever
  * file the user picks" rather than a specific user's file, and there's no
- * [GoogleDriveRepository.getMyLogin] or [GoogleDriveRepository.addFriend] equivalent, since
- * there's no concept of another user's file. A cancelled picker resolves [download]/[upload] to
+ * [GoogleDriveRepository.getShareToken] equivalent, since there's no concept of another user's
+ * file. A cancelled picker resolves [download]/[upload] to
  * null/false rather than hanging.
  */
 class ManualRepository(val suggestedFileName: String) {

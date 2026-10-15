@@ -4,12 +4,16 @@ A small Android library ("serverless" data sync/sharing SDK) providing Google-Dr
 storage for a single JSON file per user. Extracted from the
 ["Simple Wish List"](https://github.com/pvtitov/swl) app, which is its first consumer.
 
-Public API: `NoServer.configure(googleWebClientId)` (call once, e.g. from `Application.onCreate`,
-with the consumer's own Google Cloud OAuth web client ID) and `GoogleDriveRepository<T>` (generic
-Drive-backed store for a single JSON file — `download`/`upload`/`addFriend`/`getMyLogin`/
-`initialize`/`logout`), plus the internal `JsonUtils` helper and the manifest-declared
+Public API: `NoServer.configure(googleWebClientId, apiKey)` (call once, e.g. from
+`Application.onCreate`, with the consumer's own Google Cloud OAuth web client ID and API key) and `GoogleDriveRepository<T>` (generic
+Drive-backed store for a single JSON file — `login`/`download`/`upload`/`getShareToken`/
+`download(shareToken)`/`logout`), plus `NoServerException` and the manifest-declared
 `NoServerActivity` used for the Credential Manager sign-in flow. See the KDoc on
 `GoogleDriveRepository` for usage.
+
+Sharing works by token: `getShareToken()` returns an opaque token for the user's file, the app
+stores and delivers it however it likes (the library keeps no friend list), and another user
+reads that file with `download(shareToken)`.
 
 ## Status
 
@@ -96,11 +100,24 @@ dependencies {
   etc., via Credential Manager/Drive auth and app initialization). Every modern Android project
   already has this.
 - No core library desugaring needed — the library doesn't use any API that requires it.
-- The consumer must call `NoServer.configure(googleWebClientId)` with its own Google Cloud OAuth
-  web client ID before using `GoogleDriveRepository` (e.g. from `Application.onCreate`). This
-  can't be baked into the library at build time: an OAuth web client ID is tied to a specific
-  app's package name and signing certificate, so a single ID compiled into the published AAR
-  could never work across different consuming apps.
+- The consumer must call `NoServer.configure(googleWebClientId, apiKey)` with its own Google
+  Cloud project's OAuth web client ID and API key before using `GoogleDriveRepository` (e.g. from
+  `Application.onCreate`). Neither can be baked into the library at build time: both are tied to
+  a specific app's package name and signing certificate, so values compiled into the published
+  AAR could never work across different consuming apps.
+- **The API key** is one key per app, created once by the app's developer (end users never see
+  it). It's needed because, under the `drive.file` scope, a user's own sign-in can't read files
+  another account created, even public ones; `download(shareToken)` reads them with the key
+  instead. In the same Cloud project as the OAuth client: enable the Google Drive API, then
+  *APIs & Services → Credentials → Create credentials → API key*, and restrict it:
+  - **API restrictions:** Google Drive API only.
+  - **Application restrictions:** Android apps, with the app's package name and the SHA-1 of
+    every certificate it's signed with (debug, upload, and the Play App Signing key). The library
+    sends the `X-Android-Package`/`X-Android-Cert` headers this check needs.
+
+  The key ships inside the APK and can be extracted, and the Android restriction can be spoofed.
+  The worst case is someone using up the app's Drive API quota: the key can only read files that
+  are already readable by link.
 - No `Application` subclass is required from the consumer — the library gets an application
   `Context` itself via [App Startup](https://developer.android.com/topic/libraries/app-startup),
   so it won't conflict with a consumer's own `Application` subclass at manifest-merge time.
@@ -113,14 +130,27 @@ operates no server, analytics, or crash reporting, and receives nothing. The onl
 library declares is `INTERNET`.
 
 - **`GoogleDriveRepository`** talks directly from the device to Google:
-  - Signs the user in through Android Credential Manager (Google ID token) and requests the
-    full `drive` scope ("See, edit, create, and delete all of your Google Drive files"). The code
-    only touches the one file the app names, but the granted permission is broader than that.
-  - Creates, reads, and overwrites one JSON file, named by the app, in the user's Drive.
-    `download(login)` reads the same-named file owned by another account, if that account
-    shared it with the user.
-  - `getMyLogin()` reads the signed-in account's e-mail address.
-  - `addFriend(email)` grants another account read access to the user's file.
+  - Signs the user in through Android Credential Manager (Google ID token) and requests only
+    the `drive.file` scope (access to files the app itself created or opened), not the user's
+    whole Drive.
+  - Creates, reads, and overwrites one JSON file, named by the app, in the user's Drive. The
+    file carries a private app property (`noserver` = the file name, visible only to the app's
+    own Google Cloud project) that the library uses to find it again. Moving the file to the
+    trash counts as deleting it: the library stops using it immediately, and the next `login()`
+    starts a new file from the app's initial data.
+  - `login()` makes that file readable by **anyone who has its link** (Drive's "anyone with the
+    link" reader permission, not listed in search), and restores that setting if the user turned
+    it off in Drive. The share token from `getShareToken()` is the file's Drive ID, so anyone
+    holding a token can read the file, and tokens can be passed on. There is no revocation: a
+    token stops working only if the owner deletes or trashes the file, after which `login()`
+    creates a new file with a new token. Drive keeps a trashed file readable by its link until
+    the trash is emptied, so the owner's next `login()` also removes the link permission from
+    trashed files; until that `login()`, an old token still reads the trashed file. No notification e-mails are sent and no per-user permissions are
+    created.
+  - `download(shareToken)` reads another account's file by its token. The user must be signed
+    in, but this request carries no user credential: it's sent with the app's API key plus the
+    app's package name and signing-certificate SHA-1 (see the API key requirement above).
+  - `login()` reads the signed-in account's e-mail address and returns it to the app.
   - The signed-in Drive client is kept in memory only, until `logout()` (which also clears
     Credential Manager state) or process death.
 - **`ManualRepository`** reads or writes a file the user picks in the system file picker (Storage
@@ -128,10 +158,11 @@ library declares is `INTERNET`.
 - **No storage of its own:** no SharedPreferences, databases, or files beyond the Drive file
   and user-picked files above.
 - **No security of its own:** data is stored as plain JSON, with only the protection Google
-  Drive or the picked location gives it. Anyone with access to the account, a shared file, or
+  Drive or the picked location gives it. Anyone with access to the account, a share token, or
   the device can read it.
 - **Logcat:** the library deliberately doesn't log file content or the e-mail addresses passed to
-  or returned from the API, nor the URIs of picked files or the intents it launches. It does log
+  or returned from the API, nor share tokens, nor the URIs of picked files or the intents it
+  launches (a share token can still appear inside a logged Drive exception, as part of the request URL). It does log
   method names, success flags, the app-chosen Drive file name, and full exceptions from Google,
   Credential Manager, and file I/O (whose messages the library doesn't control). These logs are not stripped in release builds; a
   consumer that wants them gone can strip `android.util.Log` calls with R8
@@ -149,13 +180,14 @@ responsibility, as the party that creates the Google Cloud project and OAuth cli
   library, per the [Google API Services User Data
   Policy](https://developers.google.com/terms/api-services-user-data-policy) and the
   [OAuth consent screen requirements](https://support.google.com/cloud/answer/13464321).
-- **OAuth consent screen verification.** This library requests the broad `drive` scope (Google
-  classifies it as *restricted*; see the [Drive API auth
-  guide](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)), which
-  needs Google's brand + scope verification, and potentially an annual [CASA security
-  assessment](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
-  if the consumer's own backend (if any) can access that data — the library itself never sends
-  data through a server, only device-to-Drive.
+- **OAuth consent screen setup.** This library requests only the `drive.file` scope, which
+  Google classifies as *non-sensitive* (see the [Drive API auth
+  guide](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)), so no
+  restricted-scope verification or CASA security assessment is needed. The consent screen still
+  needs the usual app information, and brand verification if it shows the app's logo.
+- **Google Workspace accounts:** an organization's admin can forbid sharing files with "anyone
+  with the link". For such users `login()` fails with `NoServerException.Failed`, and their
+  data can't be shared.
 - **"Sign in with Google" branding**, only if the consumer builds its own custom sign-in button
   instead of relying on Credential Manager's own bottom sheet (which this library uses, and which
   is already Google-branded) — see the [branding
@@ -171,9 +203,15 @@ responsibility, as the party that creates the Google Cloud project and OAuth cli
 ```
 
 No build-time secret is required — for local manual testing, call
-`NoServer.configure(googleWebClientId)` from the consuming app with an OAuth web client ID from
-the Google Cloud Console (e.g. the same value the wishlist app's own `local.properties` used
-before extraction).
+`NoServer.configure(googleWebClientId, apiKey)` from the consuming app with an OAuth web client
+ID and API key from the Google Cloud Console (e.g. the values the wishlist app keeps in its own
+`local.properties`).
+
+When testing on a real account, first remove the app's access at
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions) if that account
+ever granted the same Cloud project a broader Drive scope (e.g. full `drive` from 1.x): Google
+adds previously granted scopes to new tokens, so reads that `drive.file` alone wouldn't allow
+would still succeed.
 
 ## Legal
 

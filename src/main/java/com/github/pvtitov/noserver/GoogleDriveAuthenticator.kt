@@ -151,7 +151,7 @@ internal object GoogleDriveAuthenticator {
         drive?.let { return it }
 
         val googleAccountCredential = GoogleAccountCredential.usingOAuth2(
-            context, listOf(DriveScopes.DRIVE)
+            context, listOf(DriveScopes.DRIVE_FILE)
         )
             .setSelectedAccount(
                 Account(googleIdTokenCredential.id, googleIdTokenCredential.type)

@@ -2,205 +2,253 @@ package com.github.pvtitov.noserver
 
 import android.util.Log
 import com.google.api.client.http.ByteArrayContent
+import com.google.api.client.http.HttpResponseException
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File
 import com.google.api.services.drive.model.Permission
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 
-
+/**
+ * One JSON file per user in their own Google Drive, readable by anyone the user gives its share
+ * token to.
+ *
+ * Call [login] first. It signs the user in, creates the file from [initialData] if there is none
+ * yet, and makes it readable by link. Then use [download]/[upload] for the user's own data and
+ * [getShareToken] to get the token the app passes on to friends (storing and delivering tokens is
+ * the app's job). A friend's data is read with `download(shareToken)`.
+ *
+ * Anyone holding a token can read the file, and tokens can't be revoked. A token stops working
+ * only when its owner deletes or trashes the file in Drive: the library then treats the file as
+ * gone, and [login] creates a new one with a new token.
+ */
 class GoogleDriveRepository<T>(
     val fileName: String,
     val initialData: T
 ) {
-    val coroutineContext =
-        SupervisorJob() + Executors.newSingleThreadExecutor().asCoroutineDispatcher() + CoroutineExceptionHandler { _, e ->
-            Log.e(TAG, "Error occurred in coroutine", e)
-        }
+    // Drive calls block, and one at a time per repository keeps them from racing on the same file.
+    // The user's file ID is deliberately not cached: a file the user trashed stays readable and
+    // writable by ID, so every operation looks it up (trashed excluded) instead of trusting an old ID.
+    private val dispatcher = Dispatchers.IO.limitedParallelism(1)
 
     /**
-     * Check if file exists and create one otherwise. Call before any other action requiring an existing file like
-     * [download], [upload], [addFriend].
+     * Signs the user in, creates their file from [initialData] if it doesn't exist yet (or the user
+     * deleted or trashed it), and makes sure it's readable by link. Returns the signed-in account's e-mail address. Call before any
+     * other operation; they also sign in on demand, but need the file this creates.
      */
-    suspend inline fun <reified T> initialize() {
-        if (initialData !is T) return
-
-        if (!isFileExists()) {
-            createFile()
-            upload<T>(initialData)
-        }
+    suspend inline fun <reified T> login(): String {
+        require(initialData is T) { "login<T>() must be called with initialData's type" }
+        val initialJson = checkNotNull(JsonUtils.toJson<T>(initialData as T)) { "initialData can't be serialized" }
+        return loginWithInitialJson(initialJson)
     }
 
-    suspend fun getMyLogin(): String? {
-        Log.d(TAG, "getMyLogin() called")
-        return withContext(coroutineContext) {
-            suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
-                    val login = drive.about().get()
-                        .setFields("user(emailAddress, me)")
-                        .execute()
-                        .user.emailAddress
-                    continuation.resume(login)
-                }, continuation::resumeWithException)
-            }
-        }
-    }
+    /** The user's own data, or null if there is no file yet (see [login]) or it doesn't decode as [T]. */
+    suspend inline fun <reified T> download(): T? =
+        downloadMyJson()?.let { JsonUtils.fromJson<T>(it) }
 
     /**
-     * Call without parameter to load currently authenticated user data or provider user's e-mail as [login]
+     * Another user's data, read with the share token they passed on from their [getShareToken].
+     * Returns null if the file doesn't decode as [T].
+     *
+     * @throws NoServerException.NoAccess if the token is malformed or its file no longer exists.
      */
-    suspend inline fun <reified T> download(login: String = AUTHENTICATED_USER): T? {
-        return withContext(coroutineContext) {
-            suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
+    suspend inline fun <reified T> download(shareToken: String): T? =
+        JsonUtils.fromJson<T>(downloadSharedJson(shareToken))
 
-                    val searchQuery = if (login == AUTHENTICATED_USER) {
-                        "name='$fileName' and 'me' in owners"
-                    } else {
-                        "name='$fileName' and '$login' in owners"
-                    }
-                    val file = drive.files().list()
-                        .setQ(searchQuery)
-                        .setSpaces("drive")
-                        .setFields("files(id, name, owners, ownedByMe, permissions)")
-                        .execute()
-                        .files
-                        .firstOrNull()
-
-                    Log.d(TAG, "download(): file found = ${file != null}")
-
-                    val data = if (file != null) {
-                        val outputStream = ByteArrayOutputStream()
-
-                        drive.files().get(file.id).executeMediaAndDownloadTo(outputStream)
-
-                        // Not logged: this is the user's file content, not diagnostic data.
-                        val rawJsonString = outputStream.toString()
-
-                        JsonUtils.fromJson<T>(rawJsonString)
-                    } else {
-                        null
-                    }
-
-                    continuation.resume(data)
-                }, continuation::resumeWithException)
-            }
-        }
-    }
-
-    suspend inline fun <reified T> upload(
-        data: T
-    ): Boolean {
+    /** Overwrites the user's file. Returns false if there is no file yet (see [login]). */
+    suspend inline fun <reified T> upload(data: T): Boolean {
         // data itself is not logged: it's the user's file content, not diagnostic data.
         Log.d(TAG, "upload() called")
-        return withContext(coroutineContext) {
-            suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
-                    val file = getMyFile(drive)
-
-                    if (file != null) {
-                        val jsonString = JsonUtils.toJson<T>(data)
-                        val mediaContent = ByteArrayContent.fromString("application/json", jsonString)
-                        drive.files().update(file.id, null, mediaContent).execute()
-                        continuation.resume(true)
-                    } else {
-                        Log.e(TAG, "File '$fileName' not found for upload.")
-                        continuation.resume(false)
-                    }
-                }, continuation::resumeWithException)
-            }
-        }
+        return uploadJson(checkNotNull(JsonUtils.toJson<T>(data)) { "data can't be serialized" })
     }
 
-    suspend fun addFriend(login: String): Boolean {
-        // login (an e-mail address) is not logged: not diagnostic data.
-        Log.d(TAG, "addFriend() called")
-        return withContext(coroutineContext) {
-            suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
-                    val permission = Permission().apply {
-                        type = "user"
-                        role = "reader"
-                        emailAddress = login
-                    }
-
-                    val file = getMyFile(drive) ?: run {
-                        continuation.resume(false)
-                        return@runWithGoogleDrive
-                    }
-
-                    drive.permissions().create(file.id, permission).execute()
-
-                    Log.d(TAG, "Successfully added a reader to $fileName")
-                    continuation.resume(true)
-                }, continuation::resumeWithException)
-            }
+    /**
+     * The token that lets other users read this user's file with `download(shareToken)`. It's
+     * opaque: store and pass it on as is. It stays the same until the user deletes or trashes the
+     * file in Drive.
+     *
+     * @throws NoServerException.Failed if there is no file yet; call [login] first.
+     */
+    suspend fun getShareToken(): String {
+        Log.d(TAG, "getShareToken() called")
+        return runOnDrive { drive ->
+            getMyFileId(drive) ?: throw IllegalStateException("There is no file to share yet. Call login() first.")
         }
     }
 
     suspend fun logout() {
-        withContext(coroutineContext) {
+        withContext(dispatcher) {
             GoogleDriveAuthorizationManager.logout()
         }
     }
 
-    @Deprecated(
-        "Don't use directly from outside this class. " +
-                "It is only public to let reified parameter for this or dependent functions"
-    )
-    suspend fun isFileExists(): Boolean {
-        Log.d(TAG, "isFileExists() called")
-        return withContext(coroutineContext) {
-            suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
-                    val file = getMyFile(drive)
-                    Log.d(TAG, "isFileExists() = ${file != null}")
-                    continuation.resume(file != null)
-                }, continuation::resumeWithException)
+    @PublishedApi
+    internal suspend fun loginWithInitialJson(initialJson: String): String {
+        Log.d(TAG, "login() called")
+        return runOnDrive { drive ->
+            stopSharingTrashedFiles(drive)
+            val fileId = getMyFileId(drive) ?: createMyFile(drive, initialJson)
+            ensureReadableByLink(drive, fileId)
+            drive.about().get()
+                .setFields("user(emailAddress)")
+                .execute()
+                .user.emailAddress
+        }
+    }
+
+    @PublishedApi
+    internal suspend fun downloadMyJson(): String? {
+        Log.d(TAG, "download() called")
+        return runOnDrive { drive ->
+            getMyFileId(drive)?.let { fileId -> readFile(drive, fileId) }
+                .also { Log.d(TAG, "download(): file found = ${it != null}") }
+        }
+    }
+
+    @PublishedApi
+    internal suspend fun downloadSharedJson(shareToken: String): String {
+        Log.d(TAG, "download(shareToken) called")
+        if (!SHARE_TOKEN_FORMAT.matches(shareToken)) throw NoServerException.NoAccess()
+        // Readers must be signed in, though the read itself uses SharedFileReader, not their credential.
+        return runOnDrive { _ ->
+            try {
+                SharedFileReader.read(shareToken)
+            } catch (e: HttpResponseException) {
+                // Only 404: it's what Drive returns for a missing or inaccessible file, while a
+                // 403 means something else (rate limit, API key misconfiguration) that the
+                // consumer shouldn't mistake for "ask your friend for a new token".
+                if (e.statusCode == 404) throw NoServerException.NoAccess(e) else throw e
             }
         }
     }
 
-    @Deprecated(
-        "Don't use directly from outside this class. " +
-                "It is only public to let reified parameter for this or dependent functions"
-    )
-    fun getMyFile(drive: Drive) = drive.files().list()
-        .setQ("name='$fileName' and 'me' in owners")
+    @PublishedApi
+    internal suspend fun uploadJson(json: String): Boolean = runOnDrive { drive ->
+        val fileId = getMyFileId(drive)
+        if (fileId != null) {
+            val mediaContent = ByteArrayContent.fromString("application/json", json)
+            drive.files().update(fileId, null, mediaContent).execute()
+        }
+        val updated = fileId != null
+        if (!updated) Log.e(TAG, "File '$fileName' not found for upload.")
+        updated
+    }
+
+    /**
+     * Runs [action] once signed in, as a child of the caller's coroutine: cancelling the caller
+     * drops an action still waiting for sign-in or consent. A blocking Drive call that has already
+     * started can't be interrupted; it finishes and its result is discarded.
+     */
+    private suspend fun <R> runOnDrive(action: (Drive) -> R): R = withContext(dispatcher) {
+        suspendCancellableCoroutine { continuation ->
+            val driveAction: (Drive) -> Unit = { drive -> continuation.resume(action(drive)) }
+            continuation.invokeOnCancellation { GoogleDriveAuthorizationManager.discard(driveAction) }
+            GoogleDriveAuthorizationManager.runWithGoogleDrive(driveAction, continuation::resumeWithException)
+        }
+    }
+
+    private fun myFilesQuery(trashed: Boolean) =
+        "appProperties has { key='$FILE_MARKER_KEY' and value='${escapeQueryValue(fileName)}' } " +
+                "and 'me' in owners and trashed=$trashed"
+
+    private fun getMyFileId(drive: Drive): String? = drive.files().list()
+        .setQ(myFilesQuery(trashed = false))
+        // Duplicates can exist (e.g. two devices running login() concurrently, or a file
+        // restored from trash); the youngest is always the one in use.
+        .setOrderBy("createdTime desc")
+        .setPageSize(1)
         .setSpaces("drive")
-        .setFields("files(id, name)")
+        .setFields("files(id)")
         .execute()
         .files
         .firstOrNull()
+        ?.id
 
-    @Deprecated(
-        "Don't use directly from outside this class. " +
-                "It is only public to let reified parameter for this or dependent functions"
-    )
-    suspend fun createFile() {
-        Log.d(TAG, "createFile() called")
-        return withContext(coroutineContext) {
-            suspendCoroutine { continuation ->
-                GoogleDriveAuthorizationManager.runWithGoogleDrive({ drive: Drive ->
-                    val file = File().apply {
-                        name = fileName
-                    }
-                    drive.files().create(file)
-                        .setFields("id")
-                        .execute()
-
-                    continuation.resume(Unit)
-                }, continuation::resumeWithException)
-            }
+    /**
+     * Trashing counts as deleting, but Drive keeps a trashed file readable by its link until the
+     * trash is emptied (30 days). Removing the link permission makes old tokens fail right away.
+     */
+    private fun stopSharingTrashedFiles(drive: Drive) {
+        val trashedIds = drive.files().list()
+            .setQ(myFilesQuery(trashed = true))
+            .setSpaces("drive")
+            .setFields("files(id)")
+            .execute()
+            .files
+            .orEmpty()
+            .map { it.id }
+        var removed = 0
+        for (fileId in trashedIds) {
+            drive.permissions().list(fileId)
+                .setFields("permissions(id,type)")
+                .execute()
+                .permissions
+                .orEmpty()
+                .filter { it.type == "anyone" }
+                .forEach {
+                    drive.permissions().delete(fileId, it.id).execute()
+                    removed++
+                }
         }
+        if (removed > 0) Log.d(TAG, "Stopped link sharing of $removed trashed file(s)")
     }
 
-    companion object {
+    private fun createMyFile(drive: Drive, initialJson: String): String {
+        Log.d(TAG, "Creating '$fileName'")
+        val metadata = File().apply {
+            name = fileName
+            appProperties = mapOf(FILE_MARKER_KEY to fileName)
+        }
+        val content = ByteArrayContent.fromString("application/json", initialJson)
+        return drive.files().create(metadata, content)
+            .setFields("id")
+            .execute()
+            .id
+    }
+
+    /** Idempotent, so it also repairs sharing the user turned off by hand in Drive. */
+    private fun ensureReadableByLink(drive: Drive, fileId: String) {
+        val alreadyShared = drive.permissions().list(fileId)
+            .setFields("permissions(type)")
+            .execute()
+            .permissions
+            .orEmpty()
+            .any { it.type == "anyone" }
+        if (alreadyShared) return
+
+        val permission = Permission().apply {
+            type = "anyone"
+            role = "reader"
+            // Readable by whoever has the token, but never listed in anyone's Drive search.
+            allowFileDiscovery = false
+        }
+        drive.permissions().create(fileId, permission).execute()
+        Log.d(TAG, "'$fileName' is now readable by link")
+    }
+
+    private fun readFile(drive: Drive, fileId: String): String {
+        val outputStream = ByteArrayOutputStream()
+        drive.files().get(fileId).executeMediaAndDownloadTo(outputStream)
+        // Not logged: this is the user's file content, not diagnostic data.
+        return outputStream.toString()
+    }
+
+    @PublishedApi
+    internal companion object {
         const val TAG = "GoogleDriveRepository"
-        const val AUTHENTICATED_USER = ""
+
+        // appProperties are private to the Cloud project that set them, so the marker can't
+        // collide with other apps' files of the same name.
+        private const val FILE_MARKER_KEY = "noserver"
+
+        // Drive file IDs; checked locally so a garbage token fails without a network call.
+        private val SHARE_TOKEN_FORMAT = Regex("[A-Za-z0-9_-]+")
+
+        /** Escapes a value for a single-quoted string in a Drive `files.list` query. */
+        fun escapeQueryValue(value: String) = value.replace("\\", "\\\\").replace("'", "\\'")
     }
 }

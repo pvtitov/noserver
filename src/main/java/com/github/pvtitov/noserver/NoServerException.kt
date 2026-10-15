@@ -19,6 +19,14 @@ sealed class NoServerException(message: String, cause: Throwable? = null) : Exce
     class Cancelled(cause: Throwable? = null) :
         NoServerException("The user cancelled Google sign-in or Drive authorization", cause)
 
+    /**
+     * A share token passed to `download(shareToken)` doesn't lead to a readable file: it's
+     * malformed, or its owner deleted the file (deleting it in Drive gives them a new token on
+     * their next login). Ask the owner for their current token.
+     */
+    class NoAccess(cause: Throwable? = null) :
+        NoServerException("The share token doesn't lead to a readable file", cause)
+
     /** Sign-in or a Drive request failed for another reason (network, Play services, Drive API error). */
     class Failed(cause: Throwable) :
         NoServerException("Google Drive operation failed: ${cause.message}", cause)

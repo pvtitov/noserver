@@ -46,3 +46,14 @@ Public surface: `NoServer.configure(googleWebClientId, apiKey)`, `GoogleDriveRep
 ## Testing approach
 
 `GoogleDriveRepositoryTest` uses MockK: it `mockkObject`s `GoogleDriveAuthorizationManager` so `runWithGoogleDrive` invokes its action synchronously with a mocked `Drive`, and stubs the fluent Drive request chains. `testOptions.unitTests.isReturnDefaultValues = true` is what lets the real code call `android.util.Log` on the plain JVM. The real sign-in/consent flow can't be covered by unit tests; it needs a device with a Google account.
+
+## Engineering rules
+
+- Don't change scope silently: if a request turns out ambiguous or the plan needs to change, say so and ask before proceeding.
+- Never report work as done, or a check as passing, without having run the verification and seen the result; state plainly what was not verified.
+- Product decisions, public-API changes, and anything touching what README's "Data handling" section claims are the user's call — ask.
+- A change isn't finished until `./gradlew build` and `./gradlew lint` pass, or their failures are reported.
+
+## Delivery workflow
+
+`/deliver-task <description | slug>` (`.claude/skills/deliver-task/`) runs the gated flow: interview → plan with acceptance criteria → user approval → implement → checks → independent review → acceptance → report. It delegates to the project subagents in `.claude/agents/` (`task-owner`, `implementer`, `code-reviewer`) and keeps state in `docs/tasks/<slug>.md`. Hooks in `.claude/settings.json` and the agents' frontmatter run `.claude/hooks/task_doc_guard.py` (needs `python3`), which rejects a task document marked `done` without verification evidence and blocks implementer edits until a plan is approved.

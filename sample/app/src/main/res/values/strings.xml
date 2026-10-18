@@ -1,0 +1,38 @@
+<resources>
+    <string name="app_name">NoServer sample</string>
+    <string name="not_configured">NoServer is not configured</string>
+    <string name="not_configured_hint">Add GOOGLE_WEB_CLIENT_ID and NOSERVER_API_KEY to sample/local.properties and rebuild.</string>
+
+    <string name="not_signed_in">Not signed in</string>
+    <string name="my_note_title">My note</string>
+    <string name="my_note_label">Note text</string>
+    <string name="updated_at">Last uploaded: %1$s</string>
+    <string name="never">never</string>
+    <string name="my_token_title">My share token</string>
+    <string name="no_token">Log in to get your token.</string>
+    <string name="copy">Copy</string>
+    <string name="share">Share</string>
+    <string name="token_clip_label">NoServer share token</string>
+    <string name="share_chooser_title">Share token</string>
+    <string name="shared_title">Another user\'s note</string>
+    <string name="shared_token_label">Paste their share token</string>
+
+    <string name="action_log_in">Log in</string>
+    <string name="action_log_out">Log out</string>
+    <string name="action_upload">Upload</string>
+    <string name="action_download">Download</string>
+    <string name="action_read_shared">Read shared</string>
+
+    <string name="status_format">%1$s: %2$s</string>
+    <string name="outcome_running">running…</string>
+    <string name="outcome_ok">done</string>
+    <string name="outcome_no_file">no file yet, or it isn\'t a valid note (download() returned null)</string>
+    <string name="outcome_own_not_a_note">your file isn\'t a valid note (download() returned null)</string>
+    <string name="outcome_not_uploaded">no file to overwrite (upload() returned false); log in first</string>
+    <string name="outcome_not_a_note">the file isn\'t a note (download(token) returned null)</string>
+    <string name="outcome_no_google_account">NoGoogleAccount: no Google account on this device</string>
+    <string name="outcome_cancelled">Cancelled: sign-in or Drive access was declined</string>
+    <string name="outcome_no_access">NoAccess: the token doesn\'t lead to a readable file</string>
+    <string name="outcome_failed">Failed (%1$s)</string>
+    <string name="outcome_unexpected">unexpected error (%1$s)</string>
+</resources>

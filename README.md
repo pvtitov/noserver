@@ -28,7 +28,9 @@ Unlike the original monorepo (which nested this as an `app`/`noserver` two-modul
 this repo's root project *is* the library — the root `build.gradle.kts` applies
 `com.android.library` directly, no `include(...)` needed in `settings.gradle.kts`. This avoids
 JitPack's module-selection ambiguity for multi-module repos entirely, which is a common source
-of JitPack build failures for otherwise-correct projects.
+of JitPack build failures for otherwise-correct projects. The `sample/` app doesn't change this:
+it is a separate Gradle build that the root `settings.gradle.kts` doesn't include (see "Sample
+app" below).
 
 ### Releasing a new version
 
@@ -212,6 +214,97 @@ When testing on a real account, first remove the app's access at
 ever granted the same Cloud project a broader Drive scope (e.g. full `drive` from 1.x): Google
 adds previously granted scopes to new tokens, so reads that `drive.file` alone wouldn't allow
 would still succeed.
+
+## Sample app
+
+`sample/` holds a minimal app that exercises the library against real Google Drive, including
+one user sharing a note with another. It is a standalone Gradle build (root project
+`noserver-sample` plus the app in `:app` at `sample/app`) that the root build and JitPack never
+see. It consumes the library **source** on the current branch through `includeBuild("..")`, not
+a published tag. It has two projects rather than one because Android Lint crashes with a
+`StackOverflowError` on a single project nested inside the library's directory.
+
+### Build and run
+
+```
+./gradlew -p sample installDebug    # build and install on the connected device/emulator
+./gradlew -p sample lint            # Android Lint for the sample
+```
+
+Or open `sample/` (not the repo root) in Android Studio and run `app`.
+
+### Keys
+
+The sample reads two values from `sample/local.properties`. That file is gitignored, and the
+root `local.properties` is not read:
+
+```
+GOOGLE_WEB_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+NOSERVER_API_KEY=AIza...
+```
+
+Write the values unquoted (surrounding quotes are stripped anyway). Copy `GOOGLE_WEB_CLIENT_ID`
+from the root `local.properties`, since the sample uses the same Cloud project. If either key is
+missing, the app still builds and shows "NoServer is not configured" instead of its actions.
+A command-line build also needs the SDK location: `sdk.dir` in `sample/local.properties`
+(Android Studio writes it when you open `sample/`) or the `ANDROID_HOME` environment variable.
+
+### Cloud setup
+
+All of this goes in the Cloud project that owns the web client ID:
+
+- **Android OAuth client** for package `com.github.pvtitov.noserver.sample` and the debug SHA-1,
+  which you can print with
+  `keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android`.
+- **API key** (Drive API enabled), restricted to the Google Drive API and to the Android app
+  `com.github.pvtitov.noserver.sample` with that debug SHA-1. Either create a new key, or add the
+  sample's package and SHA-1 to an existing key. See "Consumer requirements" above.
+- **Test users:** while the OAuth consent screen is in *Testing*, add every account you will sign
+  in with.
+- **Old grants:** revoke any broader Drive access these accounts once gave the project, at
+  [myaccount.google.com/permissions](https://myaccount.google.com/permissions) (see "Local
+  development" above).
+- Emulators need a *Google Play* system image with a Google account signed in.
+
+### Moving a share token between devices
+
+Each device has its own clipboard, so the share token from one device has to reach the other:
+
+- **Emulators:** an emulator syncs its clipboard with the host by default (Extended controls →
+  Settings → clipboard sharing). *Copy* on emulator A, then paste into the paste field on
+  emulator B.
+- **Physical devices:** use *Share* (e.g. send it to yourself), or focus the paste field and type
+  it in with `adb shell input text '<token>'` (use `adb -s <serial> ...` when several devices
+  are connected).
+
+Anyone holding a token can read the note. A token can't be revoked except by trashing the file.
+
+### Manual test script
+
+Two devices or emulators (A and B), each signed in with a different Google account:
+
+1. On A, tap **Log in**. Expected: A's e-mail appears, and so does A's share token under "My share
+   token".
+2. On A, type a note and tap **Upload**. Expected: the status line reads "Upload: done", and "Last
+   uploaded" shows the current time.
+3. On A, tap **Copy** (or **Share**) and move the token to B (see above).
+4. On B, tap **Log in** and choose B's account. Expected: B's e-mail and B's own token appear.
+5. On B, paste A's token into the paste field and tap **Read shared**. Expected: A's note text
+   and its "Last uploaded" time.
+6. On A, edit the note and tap **Upload** again.
+7. On B, tap **Read shared** again. Expected: the new text and the new time.
+8. Optional: a third account C on either device reads A's token the same way.
+
+One device, switching accounts:
+
+1. After the run above, on A, tap **Log out**, then **Log in** and choose account B. Expected:
+   B's e-mail and B's own note, which differs from A's.
+2. Paste A's token and tap **Read shared**. Expected: A's note.
+
+There is a known library caveat: `logout()` can return before the Drive client is cleared, so the
+next **Log in** may silently reuse the previous account. If it does, report it.
+A back press while sign-in is showing can leave the sample stuck on "running…" with its buttons
+disabled (a known library limitation); restart the app.
 
 ## Legal
 

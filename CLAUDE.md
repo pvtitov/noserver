@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-module Android **library** (root project applies `com.android.library`; there is no `app` module and no `include(...)` in `settings.gradle.kts`). It gives a consuming app a Google-Drive-backed store for one JSON file per user. It is published through JitPack as `com.github.pvtitov:noserver:<tag>` (currently tags `1.0.0`, `1.0.1`). `README.md` covers publishing/consumer setup, including versioning and the consumer's own legal/compliance obligations (privacy policy, OAuth verification) that this library doesn't take on for them. The library deliberately has no privacy policy or ToS of its own (it collects nothing; MIT covers liability). Instead, README's "Data handling" section documents its data flows and logging for consumers. That section makes factual claims about the code, so update it whenever you change what the library accesses, stores, or logs.
+A single-module Android **library** (root project applies `com.android.library`; there is no `app` module and no `include(...)` in `settings.gradle.kts`). `sample/` is a separate Gradle build, not included by the root `settings.gradle.kts`, that consumes the library source via `includeBuild("..")`. It has a root project plus `:app` at `sample/app`, two projects because lint crashes with a `StackOverflowError` on a single project nested in the library's directory. README's "Sample app" section covers its keys, Cloud setup, and the manual multi-user test script. The library gives a consuming app a Google-Drive-backed store for one JSON file per user. It is published through JitPack as `com.github.pvtitov:noserver:<tag>` (currently tags `1.0.0`, `1.0.1`). `README.md` covers publishing/consumer setup, including versioning and the consumer's own legal/compliance obligations (privacy policy, OAuth verification) that this library doesn't take on for them. The library deliberately has no privacy policy or ToS of its own (it collects nothing; MIT covers liability). Instead, README's "Data handling" section documents its data flows and logging for consumers. That section makes factual claims about the code, so update it whenever you change what the library accesses, stores, or logs.
 
 ## Commands
 
@@ -14,6 +14,8 @@ A single-module Android **library** (root project applies `com.android.library`;
 ./gradlew testDebugUnitTest --tests "com.github.pvtitov.noserver.JsonUtilsTest"   # one class (append .method for one test)
 ./gradlew lint                       # Android Lint
 ./gradlew -Pversion=1.0.2 publishToMavenLocal    # install to ~/.m2 for a local consumer, previewing a version before tagging it
+./gradlew -p sample installDebug     # build + install the sample app (separate build in sample/; keys go in sample/local.properties)
+./gradlew -p sample lint             # Android Lint for the sample app
 ```
 
 - `androidTest` (`ExampleInstrumentedTest`) and `ExampleUnitTest` are untouched IDE templates; the real tests are `GoogleDriveRepositoryTest` and `JsonUtilsTest`.
